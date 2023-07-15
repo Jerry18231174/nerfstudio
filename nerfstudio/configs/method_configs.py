@@ -65,6 +65,7 @@ from nerfstudio.models.neus_facto import NeuSFactoModelConfig
 from nerfstudio.models.semantic_nerfw import SemanticNerfWModelConfig
 from nerfstudio.models.tensorf import TensoRFModelConfig
 from nerfstudio.models.vanilla_nerf import NeRFModel, VanillaModelConfig
+from nerfstudio.models.nplf import NPLFConfig, NPLFModel
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 from nerfstudio.pipelines.dynamic_batch import DynamicBatchPipelineConfig
 from nerfstudio.plugins.registry import discover_methods
@@ -592,6 +593,26 @@ method_configs["neus-facto"] = TrainerConfig(
     },
     viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
     vis="viewer",
+)
+
+method_configs["NPLF"] = TrainerConfig(
+    method_name="NPLF",
+    pipeline=VanillaPipelineConfig(
+        datamanager=VanillaDataManagerConfig(
+            dataparser=BlenderDataParserConfig(),
+        ),
+        model=NPLFConfig(_target=NPLFModel),
+    ),
+    optimizers={
+        "fields": {
+            "optimizer": RAdamOptimizerConfig(lr=5e-4, eps=1e-08),
+            "scheduler": None,
+        },
+        "temporal_distortion": {
+            "optimizer": RAdamOptimizerConfig(lr=5e-4, eps=1e-08),
+            "scheduler": None,
+        },
+    },
 )
 
 
