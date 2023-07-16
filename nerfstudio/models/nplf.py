@@ -88,9 +88,9 @@ class NPLFModel(Model):
         # self.sampler_pdf = PDFSampler(num_samples=self.config.num_importance_samples)
 
         # renderers
-        self.renderer_rgb = RGBRenderer(background_color=colors.WHITE)
-        self.renderer_accumulation = AccumulationRenderer()
-        self.renderer_depth = DepthRenderer()
+        # self.renderer_rgb = RGBRenderer(background_color=colors.WHITE)
+        # self.renderer_accumulation = AccumulationRenderer()
+        # self.renderer_depth = DepthRenderer()
 
         # losses
         self.rgb_loss = MSELoss()
@@ -115,14 +115,15 @@ class NPLFModel(Model):
         return param_groups
 
     def get_outputs(self, ray_bundle: RayBundle):
-        if self.field_coarse is None or self.field_fine is None:
+        if self.field is None:
             raise ValueError("populate_fields() must be called before get_outputs")
 
         # light field:
         field_outputs = self.field.forward(ray_bundle)
-        rgb = self.renderer_rgb(
-            rgb=field_outputs[FieldHeadNames.RGB],
-        )
+        rgb = field_outputs[FieldHeadNames.RGB]  # No rendering for NPLF
+        # rgb = self.renderer_rgb(
+        #     rgb=field_outputs[FieldHeadNames.RGB],
+        # )
 
         outputs = {
             "rgb": rgb,

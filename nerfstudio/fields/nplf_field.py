@@ -29,22 +29,22 @@ def get_rotation_mat(source: Tensor, target: Tensor) -> Tensor:
     n_hat = torch.reshape(
         torch.stack(
             [
-                torch.zeros(batchsize),
+                torch.zeros(batchsize).to(device=source.device),
                 -n_vec[:, 2],
                 n_vec[:, 1],
                 n_vec[:, 2],
-                torch.zeros(batchsize),
+                torch.zeros(batchsize).to(device=source.device),
                 -n_vec[:, 0],
                 -n_vec[:, 1],
                 n_vec[:, 0],
-                torch.zeros(batchsize),
+                torch.zeros(batchsize).to(device=source.device),
             ]
         ).transpose(0, 1),
         (batchsize, 3, 3),
     )
 
     rot = (
-        torch.stack([torch.eye(3)] * batchsize)
+        torch.stack([torch.eye(3).to(device=source.device)] * batchsize)
         + torch.sin(theta).view(-1, 1, 1) * n_hat
         + (1 - torch.cos(theta).view(-1, 1, 1)) * n_hat.matmul(n_hat)
     )
@@ -64,14 +64,16 @@ def ray_to_np(ray_bundle: RayBundle, compress2d=False) -> Tuple[Tensor, Tensor, 
     np_vec = ray_bundle.origins - rho_vec
     # Rotate np_vec from normal plane to xOy plane,
     # where the rotation is same as "direction" to (0,0,1)
-    rot = get_rotation_mat(ray_bundle.directions, torch.Tensor([[0, 0, 1]] * batchsize))
+    rot = get_rotation_mat(
+        ray_bundle.directions, torch.Tensor([[0, 0, 1]] * batchsize).to(ray_bundle.directions.device)
+    )
 
     if compress2d:
         # Positional (deprecate z)
         raw_pos = rot.matmul(np_vec.view(-1, 3, 1))
-        if not (raw_pos[:, 2, 0] == 0).all():
-            print("Error during rotation, pos:", raw_pos)
-            raise RuntimeError()
+        if not (raw_pos[:, 2, 0].abs() < 1e-4).all():
+            print("Error during rotation, pos:", raw_pos[:, 2, 0].abs().max())
+            raise ValueError("Non-zero z value exists after rotation!")
         pos = raw_pos[:, :2, 0]
         # Directional (Euclidean to Radian)
         thetas = torch.acos(
@@ -79,7 +81,7 @@ def ray_to_np(ray_bundle: RayBundle, compress2d=False) -> Tuple[Tensor, Tensor, 
         )
         phis = torch.acos(ray_bundle.directions[:, 2] / d_len)
 
-        return pos, torch.stack((thetas, phis)).transpose(0, 1), rho
+        return pos, torch.stack((thetas, phis)).transpose(0, 1).contiguous(), rho
 
     return rot.matmul(np_vec.view(-1, 3, 1)), ray_bundle.directions, rho
 
@@ -119,7 +121,7 @@ class NPLFField(nn.Module):
         self.spatial_distortion = spatial_distortion
 
         self.mlp_base = MLP(
-            in_dim=self.position_encoding.get_out_dim(),
+            in_dim=self.position_encoding.get_out_dim() + self.direction_encoding.get_out_dim(),
             num_layers=base_mlp_num_layers,
             layer_width=base_mlp_layer_width,
             skip_connections=skip_connections,
@@ -127,7 +129,9 @@ class NPLFField(nn.Module):
         )
 
         self.mlp_head = MLP(
-            in_dim=self.mlp_base.get_out_dim() + self.direction_encoding.get_out_dim(),
+            in_dim=self.mlp_base.get_out_dim()
+            + self.position_encoding.get_out_dim()
+            + self.direction_encoding.get_out_dim(),
             num_layers=head_mlp_num_layers,
             layer_width=head_mlp_layer_width,
             out_activation=nn.ReLU(),
@@ -150,9 +154,12 @@ class NPLFField(nn.Module):
             if self.spatial_distortion is not None:
                 raise NotImplementedError("Spatial distortion not implemented for NPLF")
             #     positions = self.spatial_distortion(positions)
+            # print("pos shape:", positions.shape)
+            # print("dir shape:", directions.shape)
+            # print("rho shape:", offsets.shape)
             encoded_uv = self.position_encoding(positions)
             encoded_dir = self.direction_encoding(directions)
-        base_mlp_out = self.mlp_base(torch.cat((encoded_uv, encoded_dir), dim=0))
+        base_mlp_out = self.mlp_base(torch.cat((encoded_uv, encoded_dir), dim=-1))
         # density = self.field_output_density(base_mlp_out)
         outputs = {}
         for field_head in self.field_heads:
